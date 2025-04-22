@@ -8,7 +8,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { register } from "@/http/api";
 import useTokenStore from "@/store";
 import { useMutation } from "@tanstack/react-query";
@@ -73,7 +72,8 @@ const RegisterPage = () => {
     onSuccess: (response) => {
       setToken(response.data.accessToken);
       setUser(response.data.user);
-      navigate("/dashboard/home");
+      // Regular users go to welcome page
+      navigate("/dashboard/welcome");
     },
     onError: (error: any) => {
       setErrorMessage(
@@ -97,11 +97,9 @@ const RegisterPage = () => {
               <Briefcase className="h-6 w-6 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl text-center">
-            Create Admin Account
-          </CardTitle>
+          <CardTitle className="text-2xl text-center">Create Account</CardTitle>
           <CardDescription className="text-center">
-            Enter your information to create an admin account
+            Enter your information to create an account
             {errorMessage && (
               <div className="mt-2 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded-md">
                 {errorMessage}

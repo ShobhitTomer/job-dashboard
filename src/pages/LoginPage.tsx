@@ -29,7 +29,13 @@ const LoginPage = () => {
     onSuccess: (response) => {
       setToken(response.data.accessToken);
       setUser(response.data.user);
-      navigate("/dashboard/home");
+
+      // Redirect based on role
+      if (response.data.user.role === "admin") {
+        navigate("/dashboard/home");
+      } else {
+        navigate("/dashboard/welcome");
+      }
     },
     onError: (error: any) => {
       setErrorMessage(
@@ -61,9 +67,9 @@ const LoginPage = () => {
               <Briefcase className="h-6 w-6 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl text-center">GetAJob Admin</CardTitle>
+          <CardTitle className="text-2xl text-center">GetAJob Portal</CardTitle>
           <CardDescription className="text-center">
-            Enter your credentials to access the admin dashboard
+            Enter your credentials to access your account
             {errorMessage && (
               <div className="mt-2 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded-md">
                 {errorMessage}
@@ -78,7 +84,7 @@ const LoginPage = () => {
               ref={emailRef}
               id="email"
               type="email"
-              placeholder="admin@example.com"
+              placeholder="email@example.com"
               required
               autoComplete="email"
             />
@@ -115,7 +121,7 @@ const LoginPage = () => {
           </Button>
 
           <div className="mt-4 text-center text-sm">
-            Don't have an admin account?{" "}
+            Don't have an account?{" "}
             <Link
               to={"/auth/register"}
               className="text-primary underline-offset-4 hover:underline"

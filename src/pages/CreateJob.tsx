@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -34,11 +35,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
-import { createJob, getCompanyByUserId } from "@/http/api";
+import { getCompanyByUserId, supabase } from "@/http/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle, AlertCircle, Building2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import useTokenStore from "@/store";
 
 const formSchema = z.object({
@@ -72,6 +72,7 @@ const CreateJob = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useTokenStore((state) => state);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch user's company
   const { data: companyData, isLoading: isLoadingCompany } = useQuery({
@@ -95,16 +96,43 @@ const CreateJob = () => {
   });
 
   const mutation = useMutation({
-    mutationFn: createJob,
+    mutationFn: async (values: z.infer<typeof formSchema>) => {
+      try {
+        // Convert comma-separated skills to proper array
+        const skills = values.required_skills
+          .split(",")
+          .map((skill) => skill.trim())
+          .filter((skill) => skill.length > 0);
+
+        const { data, error } = await supabase
+          .from("jobs")
+          .insert([
+            {
+              ...values,
+              required_skills: skills, // Send as array instead of string
+              posted_at: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ])
+          .select();
+
+        if (error) throw error;
+        return data;
+      } catch (error: any) {
+        setError(error.message || "Failed to create job");
+        throw error;
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["jobs"] });
       navigate("/dashboard/jobs");
     },
   });
 
-  // If company exists, set it as default and make it read-only
+  // Set company_id when company data is loaded
   useEffect(() => {
-    if (companyData?.data) {
+    if (companyData?.data?.id) {
       form.setValue("company_id", companyData.data.id);
     }
   }, [companyData, form]);
@@ -120,6 +148,7 @@ const CreateJob = () => {
   const hasCompany = !!companyData?.data;
 
   function onSubmit(values: z.infer<typeof formSchema>) {
+    setError(null);
     mutation.mutate(values);
   }
 
@@ -225,12 +254,24 @@ const CreateJob = () => {
               </Link>
               <Button type="submit" disabled={mutation.isPending}>
                 {mutation.isPending && (
-                  <LoaderCircle className="animate-spin" />
+                  <LoaderCircle className="animate-spin mr-2" />
                 )}
                 <span className="ml-2">Post Job</span>
               </Button>
             </div>
           </div>
+
+          {error && (
+            <Card className="mt-4 border-red-200 bg-red-50">
+              <CardContent className="p-4">
+                <div className="flex items-center text-red-800">
+                  <AlertCircle className="h-4 w-4 mr-2" />
+                  {error}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="mt-6">
             <CardHeader>
               <CardTitle>Create a new job posting</CardTitle>
@@ -316,11 +357,11 @@ const CreateJob = () => {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="Full-time">Full-time</SelectItem>
-                            <SelectItem value="Part-time">Part-time</SelectItem>
-                            <SelectItem value="Contract">Contract</SelectItem>
-                            <SelectItem value="Freelance">Freelance</SelectItem>
-                            <SelectItem value="Internship">
+                            <SelectItem value="FULL-TIME">Full-time</SelectItem>
+                            <SelectItem value="PART-TIME">Part-time</SelectItem>
+                            <SelectItem value="CONTRACT">Contract</SelectItem>
+                            <SelectItem value="REMOTE">Remote</SelectItem>
+                            <SelectItem value="INTERNSHIP">
                               Internship
                             </SelectItem>
                           </SelectContent>
@@ -376,6 +417,10 @@ const CreateJob = () => {
                           {...field}
                         />
                       </FormControl>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Enter skills separated by commas (e.g., React, Node.js,
+                        TypeScript)
+                      </p>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -13,6 +13,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Auth API functions
+// Auth API functions
 export const login = async (data: { email: string; password: string }) => {
   try {
     // Sign in with Supabase Auth
@@ -24,21 +25,27 @@ export const login = async (data: { email: string; password: string }) => {
 
     if (authError) throw authError;
 
-    // Check if user is an admin from user metadata
-    const isAdmin = authData.user?.user_metadata?.is_admin === true;
+    // Get user details including role from the users table
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", authData.user.id)
+      .single();
 
-    // If admin login is required but user is not an admin
-    if (!isAdmin) {
-      // Optional: Throw error if you want to prevent regular users from using admin dashboard
-      throw new Error("You do not have admin privileges");
+    if (userError) {
+      console.error("Error fetching user role:", userError);
+      // Continue with default role instead of throwing
     }
+
+    // Set role from database, default to 'user' if not found
+    const role = userData?.role || "user";
 
     return {
       data: {
         accessToken: authData.session.access_token,
         user: {
           ...authData.user,
-          isAdmin,
+          role: role,
         },
       },
     };
@@ -54,10 +61,9 @@ export const register = async (data: {
   password: string;
   first_name: string;
   last_name: string;
-  isAdmin?: boolean; // Optional, default to false
 }) => {
   try {
-    // Register user in Supabase Auth with admin flag in metadata
+    // Register user in Supabase Auth with metadata
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
@@ -66,7 +72,6 @@ export const register = async (data: {
           username: data.username,
           first_name: data.first_name,
           last_name: data.last_name,
-          is_admin: data.isAdmin || false, // Set admin status in metadata
         },
       },
     });
@@ -80,16 +85,57 @@ export const register = async (data: {
       throw new Error("User creation failed");
     }
 
-    // No need to update role separately, it's already in user metadata
+    // The trigger function will handle creating the user in the public.users table
+    // with the 'user' role automatically after auth.users is updated
 
     return {
       data: {
         accessToken: authData.session?.access_token,
-        user: authData.user,
+        user: {
+          ...authData.user,
+          role: "user", // Always set initial role to 'user'
+        },
       },
     };
   } catch (error) {
     console.error("Registration error:", error);
+    throw error;
+  }
+};
+
+// Get the current user with role information
+export const getCurrentUser = async () => {
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+
+    if (authError) throw authError;
+
+    if (!authData.user) {
+      return { data: null };
+    }
+
+    // Get user role from the users table
+    const { data: userData, error: userError } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", authData.user.id)
+      .single();
+
+    if (userError) {
+      console.error("Error fetching user role:", userError);
+    }
+
+    // Set role from database, default to 'user' if not found
+    const role = userData?.role || "user";
+
+    return {
+      data: {
+        ...authData.user,
+        role: role,
+      },
+    };
+  } catch (error) {
+    console.error("Get current user error:", error);
     throw error;
   }
 };
@@ -143,18 +189,32 @@ export const createJob = async (jobData: {
   required_skills: string;
   expires_at: string;
 }) => {
-  const { data, error } = await supabase
-    .from("jobs")
-    .insert([
-      {
-        ...jobData,
-        posted_at: new Date().toISOString(),
-      },
-    ])
-    .select();
+  try {
+    // Convert comma-separated skills to array
+    const skills = jobData.required_skills
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter((skill) => skill.length > 0);
 
-  if (error) throw error;
-  return { data };
+    const { data, error } = await supabase
+      .from("jobs")
+      .insert([
+        {
+          ...jobData,
+          required_skills: skills, // Use the parsed array
+          posted_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+    return { data };
+  } catch (error) {
+    console.error("Error creating job:", error);
+    throw error;
+  }
 };
 
 export const updateJob = async (
@@ -248,7 +308,6 @@ export const updateApplicationStatus = async (id: string, status: string) => {
 };
 
 // Companies API
-// Companies API
 export const getCompanies = async () => {
   const { data, error } = await supabase
     .from("companies")
@@ -260,6 +319,10 @@ export const getCompanies = async () => {
 };
 
 export const getCompanyByUserId = async (userId: string) => {
+  if (!userId) {
+    return { data: null };
+  }
+
   const { data, error } = await supabase
     .from("companies")
     .select("*")
@@ -271,7 +334,11 @@ export const getCompanyByUserId = async (userId: string) => {
     return { data: null };
   }
 
-  if (error) throw error;
+  if (error) {
+    console.error("Error fetching company:", error);
+    throw error;
+  }
+
   return { data };
 };
 
@@ -281,19 +348,50 @@ export const createCompany = async (companyData: {
   headquarters: string;
   user_id: string;
 }) => {
-  const { data, error } = await supabase
+  // Check if company already exists for this user
+  const { data: existingCompany, error: checkError } = await supabase
     .from("companies")
-    .upsert([
-      {
-        ...companyData,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    ])
-    .select();
+    .select("id")
+    .eq("user_id", companyData.user_id)
+    .single();
 
-  if (error) throw error;
-  return { data };
+  if (checkError && checkError.code !== "PGRST116") {
+    throw checkError;
+  }
+
+  let response;
+
+  if (existingCompany) {
+    // Update existing company
+    const { data, error } = await supabase
+      .from("companies")
+      .update({
+        ...companyData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingCompany.id)
+      .select();
+
+    if (error) throw error;
+    response = { data };
+  } else {
+    // Create new company
+    const { data, error } = await supabase
+      .from("companies")
+      .insert([
+        {
+          ...companyData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ])
+      .select();
+
+    if (error) throw error;
+    response = { data };
+  }
+
+  return response;
 };
 
 // User Profile

@@ -15,6 +15,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardFooter,
 } from "@/components/ui/card";
 import {
   Form,
@@ -27,12 +28,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
-import { createCompany, getCompanyByUserId, supabase } from "@/http/api";
+import { supabase, getCompanyByUserId } from "@/http/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle, Building2 } from "lucide-react";
+import { LoaderCircle, Building2, CheckCircle } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import useTokenStore from "@/store";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const formSchema = z.object({
   name: z.string().min(2, {
@@ -51,6 +53,9 @@ const CompanyProfilePage = () => {
   const queryClient = useQueryClient();
   const { user } = useTokenStore((state) => state);
   const [hasCompany, setHasCompany] = useState(false);
+  const [message, setMessage] = useState<{ type: string; text: string } | null>(
+    null
+  );
 
   // Fetch if the user already has a company
   const { data: companyData, isLoading } = useQuery({
@@ -81,19 +86,74 @@ const CompanyProfilePage = () => {
     }
   }, [companyData, form]);
 
+  // Direct Supabase mutation instead of using a potentially problematic API function
   const mutation = useMutation({
-    mutationFn: createCompany,
+    mutationFn: async (values: z.infer<typeof formSchema>) => {
+      setMessage(null);
+
+      // Get the current user
+      const { data: userData } = await supabase.auth.getUser();
+
+      if (!userData?.user?.id) {
+        throw new Error("User not authenticated");
+      }
+
+      const companyData = {
+        ...values,
+        user_id: userData.user.id,
+        updated_at: new Date().toISOString(),
+      };
+
+      let response;
+
+      if (hasCompany && companyData?.data?.id) {
+        // Update existing company
+        response = await supabase
+          .from("companies")
+          .update(companyData)
+          .eq("id", companyData.data.id)
+          .select();
+      } else {
+        // Create new company
+        companyData.created_at = new Date().toISOString();
+        response = await supabase
+          .from("companies")
+          .insert([companyData])
+          .select();
+      }
+
+      if (response.error) {
+        console.error("Error saving company:", response.error);
+        throw response.error;
+      }
+
+      return response.data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["company-profile"] });
-      navigate("/dashboard/jobs");
+      setMessage({
+        type: "success",
+        text: hasCompany
+          ? "Company updated successfully!"
+          : "Company created successfully!",
+      });
+
+      // Wait a moment to show the success message before navigating
+      setTimeout(() => {
+        navigate("/dashboard/jobs");
+      }, 2000);
+    },
+    onError: (error) => {
+      console.error("Error saving company:", error);
+      setMessage({
+        type: "error",
+        text: `Error: ${error.message || "Failed to save company data"}`,
+      });
     },
   });
 
   function onSubmit(values: z.infer<typeof formSchema>) {
-    mutation.mutate({
-      ...values,
-      user_id: user?.id,
-    });
+    mutation.mutate(values);
   }
 
   return (
@@ -130,6 +190,25 @@ const CompanyProfilePage = () => {
               </Button>
             </div>
           </div>
+
+          {message && (
+            <Alert
+              className={`mt-4 ${
+                message.type === "success"
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
+            >
+              {message.type === "success" && (
+                <CheckCircle className="h-4 w-4" />
+              )}
+              <AlertTitle>
+                {message.type === "success" ? "Success" : "Error"}
+              </AlertTitle>
+              <AlertDescription>{message.text}</AlertDescription>
+            </Alert>
+          )}
+
           <Card className="mt-6">
             <CardHeader>
               <CardTitle>
