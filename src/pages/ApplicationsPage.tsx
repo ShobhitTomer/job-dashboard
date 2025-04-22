@@ -31,7 +31,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getApplications, updateApplicationStatus } from "@/http/api";
+import {
+  getApplications,
+  updateApplicationStatus,
+  getJobs,
+  getCompanyByUserId,
+} from "@/http/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Eye,
@@ -41,9 +46,12 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  AlertCircle,
+  Building2,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import useTokenStore from "@/store";
 
 // Define Application interface
 interface Application {
@@ -61,6 +69,7 @@ interface Application {
     company_id: string;
     company: {
       name: string;
+      user_id?: string;
     };
   };
   user: {
@@ -85,11 +94,28 @@ const ApplicationsPage = () => {
   const queryParams = new URLSearchParams(location.search);
   const jobId = queryParams.get("jobId");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const { user } = useTokenStore((state) => state);
 
+  // First fetch company data
+  const { data: companyData, isLoading: isLoadingCompany } = useQuery({
+    queryKey: ["company-profile", user?.id],
+    queryFn: () => getCompanyByUserId(user?.id),
+    enabled: !!user?.id,
+  });
+
+  // Fetch jobs for the company
+  const { data: jobsData, isLoading: isLoadingJobs } = useQuery({
+    queryKey: ["jobs-for-applications", companyData?.data?.id],
+    queryFn: () => getJobs(companyData?.data?.id),
+    enabled: !!companyData?.data?.id,
+  });
+
+  // Fetch all applications
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["applications", jobId],
     queryFn: () => getApplications(jobId || undefined),
     staleTime: 10000,
+    enabled: true,
   });
 
   const updateStatusMutation = useMutation({
@@ -100,10 +126,34 @@ const ApplicationsPage = () => {
     },
   });
 
-  // Filter applications by status
-  const filteredApplications = statusFilter
-    ? data?.data.filter((app: Application) => app.status === statusFilter)
-    : data?.data;
+  // Get list of job IDs that belong to the user's company
+  const companyJobIds = useMemo(() => {
+    return jobsData?.data?.map((job) => job.id) || [];
+  }, [jobsData]);
+
+  // Filter applications by status and company's jobs
+  const filteredApplications = useMemo(() => {
+    if (!data?.data) return [];
+
+    // First filter by jobs belonging to the company
+    let applications = data.data;
+
+    // If company data exists, filter applications to only show those for the company's jobs
+    if (companyData?.data && !jobId) {
+      applications = applications.filter((app: Application) =>
+        companyJobIds.includes(app.job_id)
+      );
+    }
+
+    // Then apply status filter if needed
+    if (statusFilter) {
+      applications = applications.filter(
+        (app: Application) => app.status === statusFilter
+      );
+    }
+
+    return applications;
+  }, [data?.data, statusFilter, companyJobIds, companyData?.data, jobId]);
 
   // Handle status change
   const handleFilterChange = (status: string | null) => {
@@ -152,6 +202,9 @@ const ApplicationsPage = () => {
   const handleStatusUpdate = (id: string, status: string) => {
     updateStatusMutation.mutate({ id, status });
   };
+
+  const hasCompany = !!companyData?.data;
+  const isLoading_All = isLoading || isLoadingCompany || isLoadingJobs;
 
   return (
     <div>
@@ -208,6 +261,29 @@ const ApplicationsPage = () => {
         </DropdownMenu>
       </div>
 
+      {!isLoading_All && !hasCompany && (
+        <Card className="mt-6 border-yellow-200 bg-yellow-50">
+          <CardContent className="flex items-center gap-4 p-4">
+            <AlertCircle className="h-8 w-8 text-yellow-500" />
+            <div>
+              <h3 className="text-lg font-medium text-yellow-800">
+                Company Profile Required
+              </h3>
+              <p className="text-yellow-700 mb-2">
+                You need to create a company profile to manage job applications.
+              </p>
+              <Button
+                onClick={() => navigate("/dashboard/company")}
+                className="bg-yellow-600 hover:bg-yellow-700"
+              >
+                <Building2 className="h-4 w-4 mr-2" />
+                Create Company Profile
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>
@@ -216,11 +292,13 @@ const ApplicationsPage = () => {
           <CardDescription>
             {jobId
               ? "Manage applications for this job position."
-              : "Review and manage all job applications."}
+              : hasCompany
+              ? "Review and manage applications for your company's jobs."
+              : "Create a company profile to manage job applications."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {isLoading && (
+          {isLoading_All && (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
@@ -235,16 +313,25 @@ const ApplicationsPage = () => {
             </div>
           )}
 
-          {!isLoading && !isError && filteredApplications?.length === 0 && (
+          {!isLoading_All && !isError && filteredApplications?.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               <p>
                 No applications found
                 {statusFilter ? ` with status "${statusFilter}"` : ""}.
               </p>
+              {hasCompany && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => navigate("/dashboard/jobs/create")}
+                >
+                  Create a Job Posting
+                </Button>
+              )}
             </div>
           )}
 
-          {!isLoading && !isError && filteredApplications?.length > 0 && (
+          {!isLoading_All && !isError && filteredApplications?.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>

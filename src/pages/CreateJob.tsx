@@ -34,11 +34,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
-import { createJob, getCompanies } from "@/http/api";
+import { createJob, getCompanyByUserId } from "@/http/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, AlertCircle, Building2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
+import useTokenStore from "@/store";
 
 const formSchema = z.object({
   title: z.string().min(2, {
@@ -70,11 +71,13 @@ const formSchema = z.object({
 const CreateJob = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useTokenStore((state) => state);
 
-  // Fetch companies for dropdown
-  const { data: companiesData, isLoading: isLoadingCompanies } = useQuery({
-    queryKey: ["companies"],
-    queryFn: getCompanies,
+  // Fetch user's company
+  const { data: companyData, isLoading: isLoadingCompany } = useQuery({
+    queryKey: ["company-profile", user?.id],
+    queryFn: () => getCompanyByUserId(user?.id),
+    enabled: !!user?.id,
   });
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -99,9 +102,12 @@ const CreateJob = () => {
     },
   });
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    mutation.mutate(values);
-  }
+  // If company exists, set it as default and make it read-only
+  useEffect(() => {
+    if (companyData?.data) {
+      form.setValue("company_id", companyData.data.id);
+    }
+  }, [companyData, form]);
 
   // Calculate default expiration date (30 days from now)
   useEffect(() => {
@@ -109,6 +115,85 @@ const CreateJob = () => {
     defaultExpiresAt.setDate(defaultExpiresAt.getDate() + 30);
     form.setValue("expires_at", defaultExpiresAt.toISOString().split("T")[0]);
   }, [form]);
+
+  // Check if user has company profile
+  const hasCompany = !!companyData?.data;
+
+  function onSubmit(values: z.infer<typeof formSchema>) {
+    mutation.mutate(values);
+  }
+
+  if (isLoadingCompany) {
+    return (
+      <div className="flex justify-center items-center py-12">
+        <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // If no company profile, show message
+  if (!hasCompany) {
+    return (
+      <section>
+        <div className="flex items-center justify-between">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/dashboard/home">
+                  Dashboard
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink href="/dashboard/jobs">Jobs</BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Create</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+
+        <Card className="mt-6 border-yellow-200 bg-yellow-50">
+          <CardHeader>
+            <CardTitle className="text-yellow-800">
+              Company Profile Required
+            </CardTitle>
+            <CardDescription className="text-yellow-700">
+              You need to create a company profile before posting jobs.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <AlertCircle className="h-8 w-8 text-yellow-500" />
+              <div>
+                <p className="text-yellow-700 mb-4">
+                  Before you can post jobs, you need to set up your company
+                  profile. This information will be shown to job applicants.
+                </p>
+                <div className="flex gap-4">
+                  <Button
+                    onClick={() => navigate("/dashboard/company")}
+                    className="bg-yellow-600 hover:bg-yellow-700"
+                  >
+                    <Building2 className="h-4 w-4 mr-2" />
+                    Create Company Profile
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => navigate("/dashboard/jobs")}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -150,7 +235,8 @@ const CreateJob = () => {
             <CardHeader>
               <CardTitle>Create a new job posting</CardTitle>
               <CardDescription>
-                Fill out the form below to create a new job listing.
+                Fill out the form below to create a new job listing for{" "}
+                {companyData?.data?.name}.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -180,24 +266,15 @@ const CreateJob = () => {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Company</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                          disabled={isLoadingCompanies}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a company" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {companiesData?.data.map((company) => (
-                              <SelectItem key={company.id} value={company.id}>
-                                {company.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <FormControl>
+                          <Input
+                            type="text"
+                            value={companyData?.data?.name || ""}
+                            disabled
+                            className="bg-muted/50"
+                          />
+                        </FormControl>
+                        <input type="hidden" {...field} />
                         <FormMessage />
                       </FormItem>
                     )}

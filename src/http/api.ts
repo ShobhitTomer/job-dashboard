@@ -95,16 +95,23 @@ export const register = async (data: {
 };
 
 // Job API functions
-export const getJobs = async () => {
-  const { data, error } = await supabase
+export const getJobs = async (companyId?: string) => {
+  let query = supabase
     .from("jobs")
     .select(
       `
             *,
-            company:company_id(name)
+            company:company_id(name, user_id)
         `
     )
     .order("created_at", { ascending: false });
+
+  // If company ID is provided, filter jobs by company
+  if (companyId) {
+    query = query.eq("company_id", companyId);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return { data };
@@ -241,11 +248,49 @@ export const updateApplicationStatus = async (id: string, status: string) => {
 };
 
 // Companies API
+// Companies API
 export const getCompanies = async () => {
   const { data, error } = await supabase
     .from("companies")
     .select("*")
     .order("name");
+
+  if (error) throw error;
+  return { data };
+};
+
+export const getCompanyByUserId = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("companies")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+  // If no company found, return null rather than error
+  if (error && error.code === "PGRST116") {
+    return { data: null };
+  }
+
+  if (error) throw error;
+  return { data };
+};
+
+export const createCompany = async (companyData: {
+  name: string;
+  industry: string;
+  headquarters: string;
+  user_id: string;
+}) => {
+  const { data, error } = await supabase
+    .from("companies")
+    .upsert([
+      {
+        ...companyData,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ])
+    .select();
 
   if (error) throw error;
   return { data };

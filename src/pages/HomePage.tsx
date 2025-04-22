@@ -8,6 +8,8 @@ import {
   FileText,
   Users,
   Clock,
+  Building2,
+  AlertCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -30,19 +32,38 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useQuery } from "@tanstack/react-query";
-import { getApplications, getJobs, getNotifications } from "@/http/api";
+import {
+  getApplications,
+  getJobs,
+  getNotifications,
+  getCompanyByUserId,
+} from "@/http/api";
 import useTokenStore from "@/store";
+import { useNavigate } from "react-router-dom";
 
 const HomePage = () => {
-  // Fetch data needed for dashboard
-  const { data: jobsData } = useQuery({
-    queryKey: ["dashboard-jobs"],
-    queryFn: getJobs,
+  const navigate = useNavigate();
+  const { user } = useTokenStore((state) => state);
+
+  // First fetch company data
+  const { data: companyData, isLoading: isLoadingCompany } = useQuery({
+    queryKey: ["company-profile", user?.id],
+    queryFn: () => getCompanyByUserId(user?.id),
+    enabled: !!user?.id,
   });
 
+  // Then fetch jobs for that company
+  const { data: jobsData } = useQuery({
+    queryKey: ["dashboard-jobs", companyData?.data?.id],
+    queryFn: () => getJobs(companyData?.data?.id),
+    enabled: !!companyData?.data?.id, // Only run if company exists
+  });
+
+  // Fetch applications for the company's jobs
   const { data: applicationsData } = useQuery({
-    queryKey: ["dashboard-applications"],
+    queryKey: ["dashboard-applications", companyData?.data?.id],
     queryFn: () => getApplications(),
+    enabled: !!companyData?.data?.id,
   });
 
   const { data: notificationsData } = useQuery({
@@ -50,27 +71,59 @@ const HomePage = () => {
     queryFn: getNotifications,
   });
 
-  const activeJobs =
-    jobsData?.data?.filter((job) => new Date(job.expires_at) > new Date()) ||
-    [];
+  // Filter applications to only show those for the company's jobs
+  const companyJobIds = jobsData?.data?.map((job) => job.id) || [];
+  const filteredApplications =
+    applicationsData?.data?.filter((app) =>
+      companyJobIds.includes(app.job_id)
+    ) || [];
 
-  const recentApplications = applicationsData?.data?.slice(0, 5) || [];
+  const recentApplications = filteredApplications.slice(0, 5);
 
-  // Calculate stats
+  // Calculate stats for filtered data
+  const hasCompany = !!companyData?.data;
   const totalJobs = jobsData?.data?.length || 0;
-  const totalApplications = applicationsData?.data?.length || 0;
+  const totalApplications = filteredApplications.length || 0;
   const pendingApplications =
-    applicationsData?.data?.filter(
-      (app) => app.status.toLowerCase() === "pending"
-    ).length || 0;
+    filteredApplications.filter((app) => app.status.toLowerCase() === "pending")
+      .length || 0;
 
   // Example application change data
   const applicationChange = 12; // This would come from your API
   const isPositiveChange = applicationChange >= 0;
 
+  // Get active jobs
+  const activeJobs =
+    jobsData?.data?.filter((job) => new Date(job.expires_at) > new Date()) ||
+    [];
+
   return (
     <>
       <div className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-0">
+        {!isLoadingCompany && !hasCompany && (
+          <Card className="border-yellow-200 bg-yellow-50">
+            <CardContent className="flex items-center gap-4 p-4">
+              <AlertCircle className="h-8 w-8 text-yellow-500" />
+              <div>
+                <h3 className="text-lg font-medium text-yellow-800">
+                  Complete Your Setup
+                </h3>
+                <p className="text-yellow-700 mb-2">
+                  Create your company profile to start posting jobs and managing
+                  applications.
+                </p>
+                <Button
+                  onClick={() => navigate("/dashboard/company")}
+                  className="bg-yellow-600 hover:bg-yellow-700"
+                >
+                  <Building2 className="h-4 w-4 mr-2" />
+                  Create Company Profile
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -217,9 +270,22 @@ const HomePage = () => {
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="mx-auto h-12 w-12 opacity-20 mb-2" />
-                  <p>No recent applications found</p>
-                  <Button variant="outline" size="sm" className="mt-4">
-                    <Link to="/dashboard/jobs/create">Post a Job</Link>
+                  <p>
+                    {hasCompany
+                      ? "No recent applications found"
+                      : "Create a company to view applications"}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4"
+                    onClick={() =>
+                      hasCompany
+                        ? navigate("/dashboard/jobs/create")
+                        : navigate("/dashboard/company")
+                    }
+                  >
+                    {hasCompany ? "Post a Job" : "Create Company"}
                   </Button>
                 </div>
               )}
@@ -232,7 +298,7 @@ const HomePage = () => {
             </CardHeader>
             <CardContent className="grid gap-6">
               {notificationsData?.data && notificationsData.data.length > 0 ? (
-                notificationsData.data.map((notification, index) => (
+                notificationsData.data.map((notification) => (
                   <div
                     key={notification.id}
                     className="flex items-center gap-4"
@@ -254,7 +320,7 @@ const HomePage = () => {
                 ))
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <Bell className="mx-auto h-12 w-12 opacity-20 mb-2" />
+                  <AlertCircle className="mx-auto h-12 w-12 opacity-20 mb-2" />
                   <p>No notifications</p>
                 </div>
               )}

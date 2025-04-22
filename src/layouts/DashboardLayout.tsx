@@ -30,6 +30,7 @@ import {
   FileText,
   Users,
   LogOut,
+  Building2,
 } from "lucide-react";
 import { Link, Navigate, NavLink, Outlet } from "react-router-dom";
 
@@ -74,6 +75,18 @@ const DashboardLayout = () => {
               </NavLink>
 
               <NavLink
+                to="/dashboard/company"
+                className={({ isActive }) => {
+                  return `flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary ${
+                    isActive && "bg-muted"
+                  }`;
+                }}
+              >
+                <Building2 className="h-4 w-4" />
+                Company
+              </NavLink>
+
+              <NavLink
                 to="/dashboard/jobs"
                 className={({ isActive }) => {
                   return `flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary ${
@@ -83,18 +96,6 @@ const DashboardLayout = () => {
               >
                 <Briefcase className="h-4 w-4" />
                 Jobs
-              </NavLink>
-
-              <NavLink
-                to="/dashboard/applications"
-                className={({ isActive }) => {
-                  return `flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary ${
-                    isActive && "bg-muted"
-                  }`;
-                }}
-              >
-                <FileText className="h-4 w-4" />
-                Applications
               </NavLink>
             </nav>
           </div>
@@ -145,14 +146,18 @@ const DashboardLayout = () => {
                   Dashboard
                 </Link>
                 <Link
+                  to="/dashboard/company"
+                  className="mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground"
+                >
+                  <Building2 className="h-5 w-5" />
+                  Company
+                </Link>
+                <Link
                   to="/dashboard/jobs"
                   className="mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground"
                 >
                   <Briefcase className="h-5 w-5" />
                   Jobs
-                  <Badge className="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
-                    6
-                  </Badge>
                 </Link>
                 <Link
                   to="/dashboard/applications"
